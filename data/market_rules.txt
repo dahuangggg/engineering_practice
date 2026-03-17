@@ -1,0 +1,6 @@
+Simplified spot market rules for the MVP demo.
+
+- Deviation penalty: 18 yuan/MWh.
+- Surplus power is credited at 88% of real-time price.
+- Flexible load can shift up to 12% of forecast load.
+- Only 80% of the planned load shift is realized during execution.
