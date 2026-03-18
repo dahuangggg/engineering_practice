@@ -2,22 +2,29 @@
 
 这是一个最小可交付版本，用来演示“基于多智能体协同的电力现货市场辅助决策系统”如何跑通完整闭环：
 
-- 感知 Agent：读取样例市场规则，感知负荷与价格状态
-- 决策 Agent：生成次日电量申报与移峰策略
-- 执行 Agent：模拟日前申报、实时偏差与结算成本
-- 反馈 Agent：评估收益、偏差率和策略效果
-- 优化 Agent：根据反馈调整下一轮策略参数
+- 感知智能体：调用 OpenAI 模型解析市场规则、感知负荷与价格状态
+- 决策智能体：调用 OpenAI 模型给出策略关注时段和移峰倾向，再生成次日电量申报方案
+- 执行智能体：用确定性算法模拟日前申报、实时偏差与结算成本
+- 反馈智能体：调用 OpenAI 模型结合收益和偏差做复盘诊断
+- 优化智能体：结合规则引擎和大模型建议调整下一轮策略参数
 
 当前版本刻意保持简单：
 
 - 不接真实交易平台
 - 不使用真实强化学习训练
-- 不依赖外部大模型服务
 - 用确定性样例数据模拟园区购电场景
+- 但已经接入真实 OpenAI API，让大模型真正参与规则理解、决策建议和复盘优化
 
 ## 目录结构
 
-- `src/power_market_mvp/core.py`：核心数据模型、多智能体逻辑、闭环编排
+- `src/power_market_mvp/models.py`：数据模型和风险偏好常量
+- `src/power_market_mvp/scenario.py`：样例市场场景与曲线生成
+- `src/power_market_mvp/rules.py`：市场规则加载与解析
+- `src/power_market_mvp/agents.py`：五个智能体实现
+- `src/power_market_mvp/llm.py`：OpenAI 配置加载与 JSON 调用封装
+- `src/power_market_mvp/pipeline.py`：闭环编排与结果格式化
+- `src/power_market_mvp/dashboard_helpers.py`：前端样式、图表与缓存计算
+- `src/power_market_mvp/core.py`：兼容导出层
 - `run_demo.py`：命令行演示入口
 - `app.py`：Streamlit 可视化页面
 - `data/market_rules.txt`：样例市场规则文本
@@ -37,6 +44,8 @@ python3 run_demo.py
 pip install -r requirements.txt
 streamlit run app.py
 ```
+
+如果你的 OpenAI API 已经配置在环境变量或 `~/.zshrc` 中，命令行和页面都会自动启用真实大模型。
 
 页面版已经升级为答辩展示型看板，包含：
 
@@ -62,7 +71,6 @@ streamlit run app.py
 ## 你可以继续扩展的方向
 
 - 接入真实 CSV 或数据库数据源
-- 把规则解析从正则升级为 LLM 规则抽取
 - 把优化 Agent 从启发式调参升级为强化学习
 - 增加更多主体类型，如储能、光伏和充电桩
 - 增加结果导出、接口层和用户权限

@@ -1,3 +1,5 @@
 altair>=5.0
+openai>=2.24.0
 pandas>=2.0
 streamlit>=1.32
+watchdog>=6.0.0

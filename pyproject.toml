@@ -1,9 +1,13 @@
 [project]
 name = "engineering-practice"
 version = "0.1.0"
-description = "Add your description here"
+description = "A multi-agent power spot market decision MVP with real OpenAI-backed LLM orchestration"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "altair>=5.0",
+    "openai>=2.24.0",
+    "pandas>=2.0",
+    "streamlit>=1.32",
     "watchdog>=6.0.0",
 ]
