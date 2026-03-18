@@ -191,6 +191,7 @@ if preview_clicked:
         st.session_state["data_preview_signature"] = preview_signature
         st.session_state.pop("analysis_result", None)
         st.session_state.pop("analysis_signature", None)
+        st.rerun()
     else:
         if uploaded_file is None:
             st.error("请先上传文件，再生成数据概览。")
@@ -217,6 +218,7 @@ if preview_clicked:
                 st.session_state["data_preview_signature"] = preview_signature
                 st.session_state.pop("analysis_result", None)
                 st.session_state.pop("analysis_signature", None)
+                st.rerun()
             except Exception as exc:
                 custom_data_error = str(exc)
                 st.error(custom_data_error)
