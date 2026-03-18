@@ -11,7 +11,9 @@ from .rules import apply_rule_overrides, load_rules_text, parse_market_rules
 from .scenario import (
     SCENARIO_PROFILES,
     available_scenario_options,
+    build_custom_scenario,
     build_sample_scenario,
+    scenario_display_name,
 )
 from .utils import (
     clamp,
@@ -36,6 +38,7 @@ __all__ = [
     "SCENARIO_PROFILES",
     "apply_rule_overrides",
     "available_scenario_options",
+    "build_custom_scenario",
     "build_dashboard_rows",
     "build_sample_scenario",
     "clamp",
@@ -46,6 +49,7 @@ __all__ = [
     "risk_label",
     "run_closed_loop",
     "safe_float",
+    "scenario_display_name",
     "sanitize_hour_list",
     "sanitize_text_list",
 ]

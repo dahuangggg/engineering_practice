@@ -6,7 +6,7 @@ from typing import Any, cast
 from .llm import OpenAIJSONAgent
 from .models import MarketRules, MarketState, RISK_FACTORS
 from .rules import apply_rule_overrides, parse_market_rules
-from .scenario import SCENARIO_PROFILES
+from .scenario import scenario_display_name
 from .utils import (
     clamp,
     format_hours,
@@ -42,7 +42,8 @@ class PerceptionAgent:
         avg_price = statistics.fmean(scenario.expected_dayahead_price)
         price_volatility = statistics.pstdev(scenario.expected_dayahead_price)
         shift_ratio = round(rules.max_shift_ratio * risk_factor, 4)
-        market_regime = f"{SCENARIO_PROFILES.get(scenario_profile, SCENARIO_PROFILES['stable'])['display_name']}市场"
+        current_scenario_name = scenario_display_name(scenario_profile)
+        market_regime = f"{current_scenario_name}市场"
         llm_summary = ""
 
         insights = [
@@ -60,7 +61,7 @@ class PerceptionAgent:
                 "market_regime 和 market_summary 必须是简洁中文。"
             )
             user_prompt = (
-                f"场景预设：{SCENARIO_PROFILES.get(scenario_profile, SCENARIO_PROFILES['stable'])['display_name']}\n"
+                f"场景预设：{current_scenario_name}\n"
                 f"风险偏好：{risk_label(normalized_risk)}\n"
                 f"规则文本：\n{rules_text}\n\n"
                 "正则解析得到的默认规则：\n"

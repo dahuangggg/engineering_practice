@@ -12,9 +12,13 @@ from .agents import (
     PerceptionAgent,
 )
 from .llm import build_openai_agent
-from .models import MarketState
+from .models import MarketScenario, MarketState
 from .rules import load_rules_text
-from .scenario import build_sample_scenario, resolve_scenario_profile
+from .scenario import (
+    build_sample_scenario,
+    resolve_scenario_profile,
+    scenario_display_name,
+)
 from .utils import format_hours
 
 
@@ -79,14 +83,28 @@ def run_closed_loop(
     risk_preference: str = "balanced",
     rules_path: str | Path | None = None,
     scenario_profile: str = "stable",
+    custom_scenario: MarketScenario | None = None,
     rule_overrides: dict[str, float] | None = None,
     llm_enabled: bool = False,
     llm_model: str | None = None,
+    llm_api_key: str | None = None,
+    llm_base_url: str | None = None,
 ) -> dict[str, Any]:
-    scenario_key, scenario_config = resolve_scenario_profile(scenario_profile)
-    scenario = build_sample_scenario(profile=scenario_key)
+    if custom_scenario is not None:
+        scenario_key = "custom"
+        scenario = custom_scenario
+        current_scenario_display_name = scenario_display_name(scenario_key)
+    else:
+        scenario_key, scenario_config = resolve_scenario_profile(scenario_profile)
+        scenario = build_sample_scenario(profile=scenario_key)
+        current_scenario_display_name = str(scenario_config["display_name"])
     rules_text = load_rules_text(rules_path)
-    llm_agent = build_openai_agent(llm_enabled, llm_model)
+    llm_agent = build_openai_agent(
+        llm_enabled,
+        llm_model,
+        llm_api_key=llm_api_key,
+        llm_base_url=llm_base_url,
+    )
 
     perception_agent = PerceptionAgent()
     decision_agent = DecisionAgent()
@@ -122,7 +140,7 @@ def run_closed_loop(
 
     return {
         "scenario_profile": scenario_key,
-        "scenario_display_name": str(scenario_config["display_name"]),
+        "scenario_display_name": current_scenario_display_name,
         "llm": {
             "enabled": llm_status,
             "provider": "OpenAI" if llm_status else "disabled",

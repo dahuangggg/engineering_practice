@@ -1,10 +1,61 @@
 from __future__ import annotations
 
+import io
+import json
+from typing import Any, cast
+
 import altair as alt
 import pandas as pd
+from pypdf import PdfReader
 import streamlit as st
+import streamlit.components.v1 as components
 
 from . import load_openai_settings, run_closed_loop
+from .llm import build_openai_agent
+from .models import MarketScenario
+from .scenario import build_custom_scenario, build_sample_scenario
+
+
+MODEL_OPTIONS = [
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-4.1-mini",
+    "gpt-4o-mini",
+    "自定义",
+]
+
+CUSTOM_DATA_FIELD_LABELS = {
+    "hour": "时段",
+    "forecast_load": "预测负荷",
+    "expected_dayahead_price": "预期日前电价",
+    "actual_load": "实际负荷",
+    "actual_dayahead_price": "实际日前电价",
+    "realtime_price": "实时电价",
+}
+
+CUSTOM_DATA_COLUMN_ALIASES = {
+    "hour": ["hour", "hour_index", "时段", "小时"],
+    "forecast_load": ["forecast_load", "forecast_load_mwh", "预测负荷", "预测负荷mwh"],
+    "expected_dayahead_price": [
+        "expected_dayahead_price",
+        "expected_dayahead_price_yuan_per_mwh",
+        "预期日前电价",
+        "预期日前电价元mwh",
+    ],
+    "actual_load": ["actual_load", "actual_load_mwh", "实际负荷", "实际负荷mwh"],
+    "actual_dayahead_price": [
+        "actual_dayahead_price",
+        "actual_dayahead_price_yuan_per_mwh",
+        "实际日前电价",
+        "实际日前电价元mwh",
+    ],
+    "realtime_price": [
+        "realtime_price",
+        "realtime_price_yuan_per_mwh",
+        "实时电价",
+        "实时电价元mwh",
+    ],
+}
 
 
 RISK_LABELS = {
@@ -21,10 +72,12 @@ SCENARIO_NOTES = {
 
 SERIES_LABELS = {
     "forecast_load_mwh": "预测负荷",
+    "actual_load_mwh": "实际负荷",
     "strategy_bid_mwh": "策略申报",
     "realized_actual_load_mwh": "执行后实际负荷",
     "expected_dayahead_price_yuan_per_mwh": "预期日前电价",
     "dayahead_price_yuan_per_mwh": "成交日前电价",
+    "actual_dayahead_price_yuan_per_mwh": "实际日前电价",
     "realtime_price_yuan_per_mwh": "实时电价",
 }
 
@@ -71,10 +124,39 @@ def inject_styles() -> None:
 
         #MainMenu,
         footer,
-        div[data-testid="stToolbar"],
-        div[data-testid="stDecoration"],
-        header[data-testid="stHeader"] {
+        div[data-testid="stDecoration"] {
             display: none !important;
+        }
+
+        div[data-testid="stMainMenu"],
+        div[data-testid="stAppDeployButton"],
+        div[data-testid="stStatusWidget"],
+        div[data-testid="stToolbarActions"] {
+            display: none !important;
+        }
+
+        header[data-testid="stHeader"] {
+            background: transparent !important;
+            border: none !important;
+        }
+
+        [data-testid="stExpandSidebarButton"] {
+            position: fixed !important;
+            top: 0.9rem;
+            left: 0.9rem;
+            z-index: 1002 !important;
+            display: flex !important;
+            align-items: center;
+            justify-content: center;
+            padding: 0.28rem !important;
+            border-radius: 999px;
+            background: rgba(255, 250, 242, 0.96);
+            border: 1px solid rgba(217, 203, 185, 0.92);
+            box-shadow: 0 10px 28px rgba(24, 48, 51, 0.12);
+        }
+
+        [data-testid="stExpandSidebarButton"] button {
+            color: var(--ink) !important;
         }
 
         .block-container {
@@ -272,6 +354,10 @@ def inject_styles() -> None:
     )
 
 
+def inject_sidebar_reopen_control() -> None:
+    components.html("<div></div>", height=0, width=0)
+
+
 def render_metric_card(title: str, value: str, note: str) -> str:
     return f"""
     <div class="metric-card">
@@ -452,7 +538,6 @@ def build_cost_breakdown_chart(result: dict) -> alt.Chart:
     )
 
 
-@st.cache_data(show_spinner=False, ttl=900)
 def compute_result(
     risk_preference: str,
     scenario_profile: str,
@@ -462,10 +547,14 @@ def compute_result(
     surplus_credit_discount: int,
     llm_enabled: bool,
     llm_model: str,
+    llm_base_url: str,
+    _llm_api_key: str,
+    custom_scenario: MarketScenario | None = None,
 ) -> dict:
     return run_closed_loop(
         risk_preference=risk_preference,
         scenario_profile=scenario_profile,
+        custom_scenario=custom_scenario,
         rule_overrides={
             "deviation_penalty_yuan_per_mwh": float(deviation_penalty),
             "max_shift_ratio": max_shift_ratio / 100.0,
@@ -474,9 +563,291 @@ def compute_result(
         },
         llm_enabled=llm_enabled,
         llm_model=llm_model,
+        llm_api_key=_llm_api_key or None,
+        llm_base_url=llm_base_url or None,
     )
 
 
-def current_openai_settings() -> tuple[bool, str]:
-    settings = load_openai_settings("gpt-5-mini")
-    return bool(settings.api_key), settings.model
+def current_openai_settings():
+    return load_openai_settings("gpt-5-mini")
+
+
+def build_custom_input_template() -> pd.DataFrame:
+    return build_input_overview_dataframe(
+        build_sample_scenario(profile="stable")
+    ).rename(
+        columns={
+            "forecast_load_mwh": "forecast_load",
+            "actual_load_mwh": "actual_load",
+            "expected_dayahead_price_yuan_per_mwh": "expected_dayahead_price",
+            "actual_dayahead_price_yuan_per_mwh": "actual_dayahead_price",
+            "realtime_price_yuan_per_mwh": "realtime_price",
+        }
+    )
+
+
+def build_custom_input_template_csv() -> bytes:
+    buffer = io.StringIO()
+    build_custom_input_template().to_csv(buffer, index=False)
+    return buffer.getvalue().encode("utf-8")
+
+
+def build_input_overview_dataframe(scenario: MarketScenario) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "hour": [f"{hour:02d}:00" for hour in range(24)],
+            "forecast_load_mwh": scenario.forecast_load,
+            "actual_load_mwh": scenario.actual_load,
+            "expected_dayahead_price_yuan_per_mwh": scenario.expected_dayahead_price,
+            "actual_dayahead_price_yuan_per_mwh": scenario.actual_dayahead_price,
+            "realtime_price_yuan_per_mwh": scenario.realtime_price,
+        }
+    )
+
+
+def build_preview_scenario(profile: str) -> MarketScenario:
+    return build_sample_scenario(profile=profile)
+
+
+def build_custom_scenario_from_uploaded_file(
+    uploaded_file: Any,
+    llm_enabled: bool,
+    llm_model: str,
+    llm_api_key: str,
+    llm_base_url: str,
+) -> tuple[MarketScenario, pd.DataFrame, str]:
+    file_name = getattr(uploaded_file, "name", "uploaded_file")
+    suffix = file_name.lower().rsplit(".", 1)[-1] if "." in file_name else ""
+    file_bytes = uploaded_file.getvalue()
+
+    if suffix == "csv":
+        dataframe = pd.read_csv(io.BytesIO(file_bytes))
+        scenario, normalized = build_custom_scenario_from_dataframe(dataframe)
+        return scenario, normalized, "csv"
+
+    if suffix == "json":
+        payload = json.loads(file_bytes.decode("utf-8", errors="ignore"))
+        dataframe = _json_payload_to_dataframe(payload)
+        scenario, normalized = build_custom_scenario_from_dataframe(dataframe)
+        return scenario, normalized, "json"
+
+    if suffix in {"txt", "md"}:
+        text = file_bytes.decode("utf-8", errors="ignore")
+        return build_custom_scenario_from_text(
+            text,
+            llm_enabled=llm_enabled,
+            llm_model=llm_model,
+            llm_api_key=llm_api_key,
+            llm_base_url=llm_base_url,
+            source_label=suffix or "text",
+        )
+
+    if suffix == "pdf":
+        text = _extract_text_from_pdf(file_bytes)
+        return build_custom_scenario_from_text(
+            text,
+            llm_enabled=llm_enabled,
+            llm_model=llm_model,
+            llm_api_key=llm_api_key,
+            llm_base_url=llm_base_url,
+            source_label="pdf",
+        )
+
+    raise ValueError("暂不支持该文件类型，请上传 CSV、JSON、TXT、MD 或 PDF 文件。")
+
+
+def build_custom_scenario_from_text(
+    text: str,
+    llm_enabled: bool,
+    llm_model: str,
+    llm_api_key: str,
+    llm_base_url: str,
+    source_label: str,
+) -> tuple[MarketScenario, pd.DataFrame, str]:
+    extracted_dataframe = extract_market_dataframe_with_llm(
+        text,
+        llm_enabled=llm_enabled,
+        llm_model=llm_model,
+        llm_api_key=llm_api_key,
+        llm_base_url=llm_base_url,
+    )
+    scenario, normalized = build_custom_scenario_from_dataframe(extracted_dataframe)
+    return scenario, normalized, f"{source_label}+llm"
+
+
+def extract_market_dataframe_with_llm(
+    text: str,
+    llm_enabled: bool,
+    llm_model: str,
+    llm_api_key: str,
+    llm_base_url: str,
+) -> pd.DataFrame:
+    if not text.strip():
+        raise ValueError("文本内容为空，无法提取市场数据。")
+
+    llm_agent = build_openai_agent(
+        llm_enabled,
+        llm_model,
+        llm_api_key=llm_api_key or None,
+        llm_base_url=llm_base_url or None,
+    )
+    if llm_agent is None:
+        raise ValueError("解析文本或 PDF 需要启用大模型，并提供可用的 API Key。")
+
+    system_prompt = (
+        "你是电力现货市场数据提取助手。"
+        "请从文本中提取 24 小时市场数据，并返回 JSON。"
+        '返回格式必须是 {"rows": [...]}。'
+        "rows 中必须恰好有 24 个对象，每个对象都包含 hour, forecast_load, expected_dayahead_price, actual_load, actual_dayahead_price, realtime_price。"
+        "hour 统一输出为 00:00 到 23:00。"
+        "所有数值字段必须是数字，不能带单位。"
+    )
+    user_prompt = (
+        "请从下面的文件内容中提取逐小时市场数据。"
+        "如果文本中是表格、列表或自然语言描述，请整理成 24 小时结构化数据。"
+        "如果原文缺少个别字段，不要臆造；仅在能从上下文明确推断时补全。\n\n"
+        f"文件内容：\n{text[:20000]}"
+    )
+    payload, error = llm_agent.ask_json(system_prompt, user_prompt)
+    if payload is None:
+        raise ValueError(f"大模型提取失败：{error or '未知错误'}")
+
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        raise ValueError("大模型返回结果缺少 rows 列表，无法提取数据。")
+
+    return pd.DataFrame(rows)
+
+
+def build_custom_scenario_from_dataframe(
+    dataframe: pd.DataFrame,
+) -> tuple[MarketScenario, pd.DataFrame]:
+    normalized = normalize_custom_market_dataframe(dataframe)
+    scenario = build_custom_scenario(
+        forecast_load=normalized["forecast_load"].astype(float).tolist(),
+        expected_dayahead_price=normalized["expected_dayahead_price"]
+        .astype(float)
+        .tolist(),
+        actual_load=normalized["actual_load"].astype(float).tolist(),
+        actual_dayahead_price=normalized["actual_dayahead_price"]
+        .astype(float)
+        .tolist(),
+        realtime_price=normalized["realtime_price"].astype(float).tolist(),
+    )
+    return scenario, normalized
+
+
+def normalize_custom_market_dataframe(dataframe: pd.DataFrame) -> pd.DataFrame:
+    if dataframe.empty:
+        raise ValueError("上传的数据为空，请提供 24 个小时的市场数据。")
+
+    column_lookup = {
+        _normalize_column_name(column): column for column in dataframe.columns
+    }
+    rename_map: dict[str, str] = {}
+
+    for target_column, aliases in CUSTOM_DATA_COLUMN_ALIASES.items():
+        matched_column = None
+        for alias in aliases:
+            normalized_alias = _normalize_column_name(alias)
+            if normalized_alias in column_lookup:
+                matched_column = column_lookup[normalized_alias]
+                break
+        if matched_column is None:
+            raise ValueError(f"缺少必需列：{CUSTOM_DATA_FIELD_LABELS[target_column]}。")
+        rename_map[matched_column] = target_column
+
+    selected_columns = list(CUSTOM_DATA_COLUMN_ALIASES.keys())
+    normalized = pd.DataFrame(
+        dataframe.rename(columns=rename_map)[selected_columns].copy()
+    )
+    hour_index_values = [
+        _parse_hour_index(value) for value in normalized["hour"].tolist()
+    ]
+    normalized["hour_index"] = hour_index_values
+
+    if any(value is None for value in hour_index_values):
+        raise ValueError("时段列格式无法识别，请使用 0-23 或 00:00 这种格式。")
+
+    normalized = pd.DataFrame(
+        normalized.sort_values(by=["hour_index"]).reset_index(drop=True)
+    )
+    hour_values = [int(value) for value in normalized["hour_index"].tolist()]
+    if hour_values != list(range(24)):
+        raise ValueError("自定义数据必须覆盖 00:00 到 23:00 共 24 个时段，且不能重复。")
+
+    numeric_columns = [
+        "forecast_load",
+        "expected_dayahead_price",
+        "actual_load",
+        "actual_dayahead_price",
+        "realtime_price",
+    ]
+    for column in numeric_columns:
+        numeric_series = pd.Series(pd.to_numeric(normalized[column], errors="coerce"))
+        normalized[column] = numeric_series
+        if int(numeric_series.isna().sum()) > 0:
+            raise ValueError(
+                f"列 {CUSTOM_DATA_FIELD_LABELS[column]} 中存在无法识别的数字。"
+            )
+
+    normalized["hour"] = [f"{hour:02d}:00" for hour in hour_values]
+    return pd.DataFrame(
+        normalized[
+            [
+                "hour_index",
+                "hour",
+                "forecast_load",
+                "expected_dayahead_price",
+                "actual_load",
+                "actual_dayahead_price",
+                "realtime_price",
+            ]
+        ].copy()
+    )
+
+
+def _json_payload_to_dataframe(payload: Any) -> pd.DataFrame:
+    if isinstance(payload, list):
+        return pd.DataFrame(payload)
+    if isinstance(payload, dict):
+        if "rows" in payload and isinstance(payload["rows"], list):
+            return pd.DataFrame(payload["rows"])
+        return pd.DataFrame(payload)
+    raise ValueError("JSON 文件格式无法识别，请使用对象数组或包含 rows 的 JSON。")
+
+
+def _extract_text_from_pdf(file_bytes: bytes) -> str:
+    reader = PdfReader(io.BytesIO(file_bytes))
+    text_parts = []
+    for page in reader.pages:
+        text_parts.append(page.extract_text() or "")
+    text = "\n".join(text_parts).strip()
+    if not text:
+        raise ValueError("PDF 中没有可提取的文本内容。")
+    return text
+
+
+def _normalize_column_name(value: object) -> str:
+    text = str(value).strip().lower()
+    for token in [" ", "-", "_", "(", ")", "（", "）", "/"]:
+        text = text.replace(token, "")
+    return text
+
+
+def _parse_hour_index(value: object) -> float | None:
+    text = str(value).strip()
+    if not text:
+        return None
+
+    if text.endswith(":00"):
+        text = text[:-3]
+
+    try:
+        hour = int(float(text))
+    except ValueError:
+        return None
+
+    if 0 <= hour <= 23:
+        return float(hour)
+    return None

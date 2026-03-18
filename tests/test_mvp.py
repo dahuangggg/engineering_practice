@@ -5,6 +5,7 @@ from src.power_market_mvp.core import (
     parse_market_rules,
     run_closed_loop,
 )
+from src.power_market_mvp.scenario import build_custom_scenario
 
 
 class MVPSmokeTests(unittest.TestCase):
@@ -39,6 +40,19 @@ class MVPSmokeTests(unittest.TestCase):
         )
         self.assertEqual(result["scenario_profile"], "peak")
         self.assertGreater(result["optimization"]["recommended_shift_ratio"], 0.0)
+
+    def test_custom_scenario_runs(self) -> None:
+        custom_scenario = build_custom_scenario(
+            forecast_load=[60.0 + hour for hour in range(24)],
+            expected_dayahead_price=[300.0 + hour * 5 for hour in range(24)],
+            actual_load=[61.0 + hour for hour in range(24)],
+            actual_dayahead_price=[302.0 + hour * 5 for hour in range(24)],
+            realtime_price=[310.0 + hour * 5 for hour in range(24)],
+        )
+        result = run_closed_loop(custom_scenario=custom_scenario)
+        self.assertEqual(result["scenario_profile"], "custom")
+        self.assertEqual(result["scenario_display_name"], "自定义数据")
+        self.assertEqual(len(result["hourly_rows"]), 24)
 
 
 if __name__ == "__main__":

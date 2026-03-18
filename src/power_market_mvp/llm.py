@@ -61,17 +61,36 @@ def load_openai_settings(preferred_model: str | None = None) -> OpenAISettings:
     return OpenAISettings(api_key=api_key, base_url=base_url, model=model)
 
 
+def merge_openai_settings(
+    preferred_model: str | None = None,
+    preferred_api_key: str | None = None,
+    preferred_base_url: str | None = None,
+) -> OpenAISettings:
+    base_settings = load_openai_settings(preferred_model)
+    api_key = (preferred_api_key or "").strip() or base_settings.api_key
+    base_url = (preferred_base_url or "").strip() or base_settings.base_url
+    model = (preferred_model or "").strip() or base_settings.model
+    return OpenAISettings(api_key=api_key, base_url=base_url, model=model)
+
+
 def openai_available(preferred_model: str | None = None) -> bool:
     return load_openai_settings(preferred_model).enabled
 
 
 def build_openai_agent(
-    llm_enabled: bool, llm_model: str | None = None
+    llm_enabled: bool,
+    llm_model: str | None = None,
+    llm_api_key: str | None = None,
+    llm_base_url: str | None = None,
 ) -> "OpenAIJSONAgent | None":
     if not llm_enabled:
         return None
 
-    settings = load_openai_settings(llm_model)
+    settings = merge_openai_settings(
+        preferred_model=llm_model,
+        preferred_api_key=llm_api_key,
+        preferred_base_url=llm_base_url,
+    )
     if not settings.enabled:
         return None
     return OpenAIJSONAgent(settings)

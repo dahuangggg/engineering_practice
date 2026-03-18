@@ -121,6 +121,8 @@ SCENARIO_PROFILES = {
     },
 }
 
+CUSTOM_SCENARIO_DISPLAY_NAME = "自定义数据"
+
 
 def resolve_scenario_profile(profile: str) -> tuple[str, Dict[str, float | str]]:
     normalized_profile = profile.strip().lower()
@@ -133,6 +135,13 @@ def available_scenario_options() -> Dict[str, str]:
     return {
         key: str(config["display_name"]) for key, config in SCENARIO_PROFILES.items()
     }
+
+
+def scenario_display_name(profile: str) -> str:
+    profile_config = SCENARIO_PROFILES.get(profile)
+    if profile_config:
+        return str(profile_config["display_name"])
+    return CUSTOM_SCENARIO_DISPLAY_NAME
 
 
 def _scenario_load_adjustment(profile_key: str, hour: int) -> float:
@@ -299,3 +308,66 @@ def build_sample_scenario(
         actual_dayahead_price=actual_dayahead_price,
         realtime_price=realtime_price,
     )
+
+
+def build_custom_scenario(
+    forecast_load: list[float],
+    expected_dayahead_price: list[float],
+    actual_load: list[float],
+    actual_dayahead_price: list[float],
+    realtime_price: list[float],
+    history_loads: list[list[float]] | None = None,
+    history_prices: list[list[float]] | None = None,
+) -> MarketScenario:
+    _validate_hourly_series("forecast_load", forecast_load)
+    _validate_hourly_series("expected_dayahead_price", expected_dayahead_price)
+    _validate_hourly_series("actual_load", actual_load)
+    _validate_hourly_series("actual_dayahead_price", actual_dayahead_price)
+    _validate_hourly_series("realtime_price", realtime_price)
+
+    load_history = history_loads or _build_history_from_daily_values(
+        forecast_load, kind="load"
+    )
+    price_history = history_prices or _build_history_from_daily_values(
+        expected_dayahead_price,
+        kind="price",
+    )
+
+    for index, day in enumerate(load_history):
+        _validate_hourly_series(f"history_loads[{index}]", day)
+    for index, day in enumerate(price_history):
+        _validate_hourly_series(f"history_prices[{index}]", day)
+
+    return MarketScenario(
+        history_loads=[[round(value, 2) for value in day] for day in load_history],
+        history_prices=[[round(value, 2) for value in day] for day in price_history],
+        forecast_load=[round(value, 2) for value in forecast_load],
+        expected_dayahead_price=[round(value, 2) for value in expected_dayahead_price],
+        actual_load=[round(value, 2) for value in actual_load],
+        actual_dayahead_price=[round(value, 2) for value in actual_dayahead_price],
+        realtime_price=[round(value, 2) for value in realtime_price],
+    )
+
+
+def _validate_hourly_series(name: str, values: list[float]) -> None:
+    if len(values) != 24:
+        raise ValueError(f"{name} 必须包含 24 个小时的数据。")
+
+
+def _build_history_from_daily_values(
+    daily_values: list[float], kind: str, history_days: int = 5
+) -> list[list[float]]:
+    history: list[list[float]] = []
+    scale = 0.018 if kind == "load" else 0.024
+    day_shift = 0.6 if kind == "load" else 3.5
+
+    for day in range(history_days):
+        offset = day - (history_days - 1) / 2
+        hourly_values: list[float] = []
+        for hour, base_value in enumerate(daily_values):
+            wave = base_value * scale * math.sin((day + 1) * (hour + 2) / 6.4)
+            trend = offset * day_shift
+            hourly_values.append(max(0.0, round(base_value + wave + trend, 2)))
+        history.append(hourly_values)
+
+    return history
