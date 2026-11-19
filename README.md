@@ -1,78 +1,111 @@
-# 电力现货辅助决策 MVP
+# engineering-practice · 电力现货辅助决策 MVP
 
-这是一个最小可交付版本，用来演示“基于多智能体协同的电力现货市场辅助决策系统”如何跑通完整闭环：
+[中文](#中文) | [English](#english)
 
-- 感知智能体：调用 OpenAI 模型解析市场规则、感知负荷与价格状态
-- 决策智能体：调用 OpenAI 模型给出策略关注时段和移峰倾向，再生成次日电量申报方案
-- 执行智能体：用确定性算法模拟日前申报、实时偏差与结算成本
-- 反馈智能体：调用 OpenAI 模型结合收益和偏差做复盘诊断
-- 优化智能体：结合规则引擎和大模型建议调整下一轮策略参数
+---
 
-当前版本刻意保持简单：
+## 中文
 
-- 不接真实交易平台
-- 不使用真实强化学习训练
-- 用确定性样例数据模拟园区购电场景
-- 但已经接入真实 OpenAI API，让大模型真正参与规则理解、决策建议和复盘优化
+基于多智能体协同的电力现货市场辅助决策系统 MVP：模拟工业园区购电申报，跑通“感知 → 决策 → 执行 → 反馈 → 优化”闭环。
 
-## 目录结构
+### 项目状态
 
-- `src/power_market_mvp/models.py`：数据模型和风险偏好常量
-- `src/power_market_mvp/scenario.py`：样例市场场景与曲线生成
-- `src/power_market_mvp/rules.py`：市场规则加载与解析
-- `src/power_market_mvp/agents.py`：五个智能体实现
-- `src/power_market_mvp/llm.py`：OpenAI 配置加载与 JSON 调用封装
-- `src/power_market_mvp/pipeline.py`：闭环编排与结果格式化
-- `src/power_market_mvp/dashboard_helpers.py`：前端样式、图表与缓存计算
-- `src/power_market_mvp/core.py`：兼容导出层
-- `run_demo.py`：命令行演示入口
-- `app.py`：Streamlit 可视化页面
-- `data/market_rules.txt`：样例市场规则文本
-- `tests/test_mvp.py`：基础单元测试
+早期项目（课程工程实践原型），不再维护。
 
-## 快速开始
+### 功能
 
-先运行命令行版本：
+- 五个智能体闭环：感知、决策、优化智能体可调用 OpenAI 模型；执行智能体用确定性算法模拟日前申报、实时偏差与结算；反馈智能体做收益/偏差复盘
+- 未配置 OpenAI API Key 时自动关闭大模型，仅用规则与确定性逻辑运行
+- 内置场景：平稳日、尖峰日、波动日；风险偏好：稳健、平衡、进取
+- 规则参数可调：偏差罚金、最大移峰比例、执行兑现率、余量回收折扣
+- 自定义数据输入：CSV / JSON / TXT / MD / PDF，文本可由大模型抽取 24 小时数据
+- Streamlit 看板：负荷曲线、电价走势、成本结构、小时级收益表
+- 简化范围：不接真实交易平台，不做真实强化学习训练
+
+### 技术栈
+
+Python 3.12 · Streamlit · OpenAI Python SDK · pandas · Altair · pypdf · uv
+
+### 本地运行
 
 ```bash
-python3 run_demo.py
-```
+# 使用 uv（仓库包含 uv.lock）
+uv sync
+uv run python run_demo.py                 # 命令行演示
+uv run streamlit run app.py               # 可视化页面
+uv run python -m unittest discover -s tests -v   # 单元测试
 
-如果想看简单页面：
-
-```bash
+# 或使用 pip
 pip install -r requirements.txt
+python3 run_demo.py
 streamlit run app.py
 ```
 
-如果你的 OpenAI API 已经配置在环境变量或 `~/.zshrc` 中，命令行和页面都会自动启用真实大模型。
+可选环境变量（也会从 `~/.zshrc` 的 `export` 行读取）：`OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL`（默认 `gpt-5-mini`）。
 
-页面版已经升级为答辩展示型看板，包含：
+### 目录结构
 
-- 数据入口选择：先选模拟数据测试或自定义数据输入，再生成数据概览、最后开始策略分析
-- 场景切换：平稳日、尖峰日、波动日
-- 风险偏好切换：稳健、平衡、进取
-- 规则调节：偏差罚金、最大移峰比例、执行兑现率、余量回收折扣
-- 自定义文件输入：支持 CSV、JSON、TXT、MD、PDF，文本文件可由大模型自动抽取 24 小时数据
-- 可视化分析：负荷曲线、电价走势、成本结构、小时级收益表
+```
+app.py                     Streamlit 可视化页面
+run_demo.py                命令行演示入口
+src/power_market_mvp/      核心代码：agents / pipeline / scenario / rules / llm / models / dashboard_helpers
+data/market_rules.txt      样例市场规则文本
+tests/test_mvp.py          单元测试
+workflow_logic.md          页面流程与分析闭环（Mermaid）
+页面名词说明.md             页面术语与参数说明
+info/                      选题说明与流程图
+```
 
-如果你需要理解页面里的术语和参数含义，可查看 `页面名词说明.md`。
+---
 
-## MVP 场景说明
+## English
 
-这个原型假设工业园区参与购电申报，系统需要根据负荷预测、价格走势、偏差规则和风险偏好，给出次日电量申报方案。
+An MVP of a multi-agent decision-support system for the electricity spot market: it simulates an industrial park's day-ahead power purchase bidding and runs a closed loop of perception → decision → execution → feedback → optimization.
 
-简化后的市场结算规则如下：
+### Status
 
-- 日前申报电量按日前价格结算
-- 实际用电高于申报的部分，按实时价格补购
-- 实际用电低于申报的部分，按折扣后的实时价格回收
-- 偏差电量会产生固定罚金
-- 柔性负荷移峰计划只有部分能在执行阶段真正兑现
+Early project (a course engineering-practice prototype), no longer actively maintained.
 
-## 你可以继续扩展的方向
+### Features
 
-- 接入真实 CSV 或数据库数据源
-- 把优化 Agent 从启发式调参升级为强化学习
-- 增加更多主体类型，如储能、光伏和充电桩
-- 增加结果导出、接口层和用户权限
+- Five-agent closed loop: perception, decision and optimization agents can call an OpenAI model; the execution agent deterministically simulates day-ahead bids, real-time deviations and settlement; the feedback agent reviews profit and deviation
+- Runs with the LLM disabled (rules and deterministic logic only) when no OpenAI API key is configured
+- Built-in scenarios: stable, peak, volatile; risk preferences: conservative, balanced, aggressive
+- Tunable rules: deviation penalty, max load-shift ratio, execution realization rate, surplus credit discount
+- Custom data input: CSV / JSON / TXT / MD / PDF; the LLM can extract 24-hour data from text files
+- Streamlit dashboard: load curves, price trends, cost breakdown, hourly profit table
+- Simplified scope: no real trading platform, no real reinforcement-learning training
+
+### Tech stack
+
+Python 3.12 · Streamlit · OpenAI Python SDK · pandas · Altair · pypdf · uv
+
+### Getting started
+
+```bash
+# With uv (uv.lock is included)
+uv sync
+uv run python run_demo.py                 # CLI demo
+uv run streamlit run app.py               # dashboard
+uv run python -m unittest discover -s tests -v   # unit tests
+
+# Or with pip
+pip install -r requirements.txt
+python3 run_demo.py
+streamlit run app.py
+```
+
+Optional environment variables (also read from `export` lines in `~/.zshrc`): `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` (default `gpt-5-mini`).
+
+### Directory structure
+
+```
+app.py                     Streamlit dashboard
+run_demo.py                CLI demo entry point
+src/power_market_mvp/      Core code: agents / pipeline / scenario / rules / llm / models / dashboard_helpers
+data/market_rules.txt      Sample market rules text
+tests/test_mvp.py          Unit tests
+workflow_logic.md          Page flow and analysis loop (Mermaid)
+页面名词说明.md             Glossary of dashboard terms and parameters (Chinese)
+info/                      Topic description and flow diagram
+```
